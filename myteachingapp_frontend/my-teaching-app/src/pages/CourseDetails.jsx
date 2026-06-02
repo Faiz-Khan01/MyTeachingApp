@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import API from '../api/axiosInstance';
+import { useAuth } from '../context/AuthContext';
+import PaymentModal from '../components/PaymentModal';
 import toast from 'react-hot-toast';
+import { formatCoursePrice } from '../api/razorpay';
 
 const CourseDetails = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { user } = useAuth();
 
     const [course, setCourse] = useState(null);
     const [loading, setLoading] = useState(true);
     const [enrolled, setEnrolled] = useState(false);
     const [relatedCourses, setRelatedCourses] = useState([]);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
 
     // Fetch course details
     useEffect(() => {
@@ -38,17 +43,28 @@ const CourseDetails = () => {
 
        // Handle enrollment
       const handleEnroll = async () => {
+        if (!user) {
+            toast.error('Please login to enroll');
+            navigate('/login');
+            return;
+        }
+        setShowPaymentModal(true);
+    };
+
+    const handlePaymentSuccess = async (paymentData) => {
         try {
-            // This matches your updated UserController @PostMapping("/enroll/{courseId}")
-            const response = await API.post(`/users/enroll/${id}`);
+            // Call enrollment endpoint after successful payment
+            const response = await API.post(`/users/enroll/${id}`, {
+                paymentId: paymentData.paymentId,
+                razorpayOrderId: paymentData.orderId,
+                razorpaySignature: paymentData.signature,
+            });
             
-            // This replaces the "localhost says" browser alert with a toast
-            toast.success(response.data || "Enrolled Successfully! Check your dashboard.");
-            
-            setEnrolled(true); 
+            toast.success(response.data || "Enrolled Successfully!");
+            setEnrolled(true);
+            setShowPaymentModal(false);
         } catch (err) {
-            // If the backend sends a string error (like "Already enrolled"), we show it
-            const errorMsg = err.response?.data || "Please login to enroll.";
+            const errorMsg = err.response?.data || "Enrollment failed.";
             toast.error(typeof errorMsg === 'string' ? errorMsg : "Enrollment failed.");
         }
     };
@@ -67,7 +83,8 @@ const CourseDetails = () => {
 
 
     return (
-        <div className="bg-light min-vh-100">
+        <>
+            <div className="bg-light min-vh-100">
             {/* Hero Header */}
             <div className="bg-dark text-white py-5 mb-5">
                 <div className="container px-4">
@@ -161,13 +178,23 @@ const CourseDetails = () => {
                     <div className="col-lg-4">
                         <div className="card border-0 shadow-lg sticky-top rounded-4 overflow-hidden" style={{ top: '100px', zIndex: '10' }}>
                             <div className="card-body p-4 text-center">
-                                <h2 className="fw-bold mb-3">${course.price}</h2>
+                                <h2 className="fw-bold mb-3">{formatCoursePrice(course.price)}</h2>
                                 <button 
                                     onClick={handleEnroll} 
                                     className={`btn btn-lg w-100 fw-bold mb-3 shadow-sm py-3 rounded-pill ${enrolled ? 'btn-success' : 'btn-primary'}`}
                                     disabled={enrolled}
                                 >
-                                    {enrolled ? "✓ Already Enrolled" : "Enroll Now"}
+                                    {enrolled ? (
+                                        <>
+                                            <i className="bi bi-check-circle me-2"></i>
+                                            Already Enrolled
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="bi bi-credit-card me-2"></i>
+                                            Enroll Now
+                                        </>
+                                    )}
                                 </button>
                                 <p className="small text-muted mb-0">30-Day Money-Back Guarantee</p>
                                 <hr className="my-3 text-muted opacity-25" />
@@ -181,7 +208,17 @@ const CourseDetails = () => {
                     </div>
                 </div>
             </div>
-        </div>
+
+            {/* Payment Modal */}
+            <PaymentModal
+                course={course}
+                user={user}
+                isOpen={showPaymentModal}
+                onClose={() => setShowPaymentModal(false)}
+                onPaymentSuccess={handlePaymentSuccess}
+            />
+            </div>
+        </>
     );
 };
 
